@@ -1,3 +1,4 @@
+import html
 import re
 
 import numpy as np
@@ -11,18 +12,32 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("PECVD 공정 이상 판단 Agent")
-st.caption("장비 로그에서 공정 구간과 target/actual 신호를 자동으로 찾아 이상 여부를 간단히 판단합니다.")
+st.title("PECVD 공정 이상 진단")
+st.caption("Recipe 흐름과 주요 제어 신호를 한 화면에서 확인합니다.")
 
 
 st.markdown(
     """
     <style>
+    .main .block-container {
+        max-width: 1180px;
+        padding-top: 2rem;
+    }
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 0.9rem 1rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #64748b;
+    }
     .workflow-step {
-        border-top: 1px solid #d1d5db;
-        padding-top: 1.05rem;
-        margin-top: 1.35rem;
-        margin-bottom: 0.85rem;
+        border-top: 1px solid #e5e7eb;
+        padding-top: 1.2rem;
+        margin-top: 1.6rem;
+        margin-bottom: 0.8rem;
     }
     .workflow-step:first-of-type {
         border-top: 0;
@@ -31,32 +46,45 @@ st.markdown(
     .workflow-title {
         display: flex;
         align-items: center;
-        gap: 0.65rem;
-        margin-bottom: 0.2rem;
+        gap: 0.75rem;
+        margin-bottom: 0.15rem;
     }
     .workflow-number {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 2rem;
-        height: 2rem;
+        width: 1.8rem;
+        height: 1.8rem;
         border-radius: 999px;
-        background: #111827;
+        background: #0f172a;
         color: white;
         font-weight: 700;
-        font-size: 1rem;
+        font-size: 0.92rem;
         flex: 0 0 auto;
     }
     .workflow-heading {
-        font-size: 1.35rem;
+        font-size: 1.22rem;
         line-height: 1.25;
         font-weight: 750;
-        color: #111827;
+        color: #0f172a;
     }
     .workflow-caption {
-        color: #4b5563;
-        margin-left: 2.65rem;
-        font-size: 0.95rem;
+        color: #64748b;
+        margin-left: 2.55rem;
+        font-size: 0.9rem;
+    }
+    .data-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        border: 1px solid #dbeafe;
+        background: #eff6ff;
+        color: #1e3a8a;
+        border-radius: 999px;
+        padding: 0.35rem 0.75rem;
+        font-size: 0.88rem;
+        font-weight: 650;
+        margin: 0.35rem 0 0.2rem 0;
     }
     </style>
     """,
@@ -477,11 +505,11 @@ def make_recipe_timeline_figure(df, time_col, recipe_col=None, step_col=None, st
         )
 
     fig.update_layout(
-        title="Recipe timeline",
+        title="Recipe 타임라인",
         height=max(220, 90 + 48 * segments["recipe"].nunique()),
         barmode="stack",
         margin=dict(l=16, r=16, t=56, b=16),
-        xaxis=dict(title="Time", type="date"),
+        xaxis=dict(title="시간", type="date"),
         yaxis=dict(title="", autorange="reversed"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
@@ -519,13 +547,13 @@ def make_tracking_figure(pair_df, pair, time_col):
                 x=anomaly_df[time_col],
                 y=anomaly_df[actual_col],
                 mode="markers",
-                name="이상 후보",
+                name="이탈 구간",
                 marker=dict(color="#dc2626", size=8, symbol="x"),
             )
         )
 
     fig.update_layout(
-        title=f"{pair['label']} target vs actual",
+        title=f"{pair['label']} 추적 상태",
         height=430,
         margin=dict(l=16, r=16, t=56, b=16),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -543,14 +571,14 @@ def find_pair_by_columns(pairs, setpoint_col, actual_col):
 render_step_header(
     1,
     "데이터 선택",
-    "CSV 파일을 업로드하거나 준비된 샘플데이터를 선택해 분석을 시작합니다.",
+    "파일을 올리거나 예시 데이터를 선택하세요.",
 )
 uploaded_file = st.file_uploader("CSV 업로드", type=["csv"], label_visibility="collapsed")
 
 sample_datasets = {
-    "샘플데이터 1": "sample_1_normal.csv",
-    "샘플데이터 2": "sample_2_short_gas_drift.csv",
-    "샘플데이터 3": "sample_3_severe_multi_signal.csv",
+    "정상 예시": "sample_1_normal.csv",
+    "주의 예시": "sample_2_short_gas_drift.csv",
+    "위험 예시": "sample_3_severe_multi_signal.csv",
 }
 
 if uploaded_file is not None:
@@ -558,7 +586,7 @@ if uploaded_file is not None:
 
 sample_cols = st.columns(3)
 for idx, (sample_label, sample_path) in enumerate(sample_datasets.items()):
-    if sample_cols[idx].button(f"{sample_label} 사용하기", type="secondary", width="stretch"):
+    if sample_cols[idx].button(sample_label, type="secondary", width="stretch"):
         st.session_state["selected_sample_data"] = sample_path
 
 if uploaded_file is not None:
@@ -568,8 +596,13 @@ elif st.session_state.get("selected_sample_data"):
     data_name = st.session_state["selected_sample_data"]
     df = pd.read_csv(data_name)
 else:
-    st.info("CSV 파일을 업로드하거나 샘플데이터 버튼을 눌러 분석을 시작하세요.")
+    st.info("분석할 데이터를 선택하세요.")
     st.stop()
+
+st.markdown(
+    f'<div class="data-chip">분석 데이터 · {html.escape(data_name)}</div>',
+    unsafe_allow_html=True,
+)
 
 time_col = guess_time_column(df)
 step_col = guess_step_column(df)
@@ -587,18 +620,18 @@ timeline_fig = make_recipe_timeline_figure(base_df, time_col, recipe_col, step_c
 if timeline_fig is not None:
     render_step_header(
         2,
-        "Recipe 진행 타임라인 확인",
-        "시간 흐름에 따라 어떤 recipe와 step이 진행됐는지 먼저 확인합니다.",
+        "Recipe 타임라인",
+        "공정 흐름을 먼저 확인합니다.",
     )
     st.plotly_chart(timeline_fig, width="stretch")
 
 render_step_header(
     3,
-    "분석 구간 선택 및 공정 판단",
-    "전체 공정 또는 특정 step을 선택하면 target/actual 추적 상태를 요약합니다.",
+    "진단 결과",
+    "분석할 구간을 선택하면 결과가 바로 갱신됩니다.",
 )
 step_options = get_step_options(process_df, step_col)
-scope = st.selectbox("공정 구간", step_options, help="Agent가 로그에서 찾은 recipe step 후보입니다.")
+scope = st.selectbox("구간", step_options)
 
 scoped_df = process_df.copy()
 if scope != "전체 공정" and step_col:
@@ -607,34 +640,33 @@ if scope != "전체 공정" and step_col:
 metrics = calculate_pair_metrics(scoped_df, control_pairs, time_col, step_col, status_col)
 overall_status, overall_reason = judge_overall(metrics)
 
-summary_col, checked_col, issue_col, signal_col = st.columns([1.5, 1, 1, 1])
-summary_col.metric("공정 판단", overall_status)
+summary_col, issue_col, signal_col = st.columns([1.4, 1, 1])
+summary_col.metric("상태", overall_status)
 summary_col.caption(overall_reason)
-checked_col.metric("분석 구간 Row", f"{len(scoped_df):,}")
 issue_count = int(metrics["bad_count"].sum()) if not metrics.empty else 0
-issue_col.metric("이상 후보 Point", f"{issue_count:,}")
+issue_col.metric("이상 후보", f"{issue_count:,}")
 signal_col.metric("감시 신호", f"{len(metrics):,}")
 
 if overall_status == "정상":
-    st.success("현재 선택 구간에서는 주요 제어 신호가 target을 잘 따라가고 있습니다.")
+    st.success("주요 신호가 안정적으로 추적 중입니다.")
 elif overall_status == "주의":
-    st.warning("일부 신호에서 편차가 보입니다. 아래 추천 신호를 먼저 확인하세요.")
+    st.warning("일부 신호에 편차가 있습니다.")
 else:
-    st.error("공정 이상 가능성이 큽니다. 가장 위에 표시된 신호와 발생 시점을 확인하세요.")
+    st.error("이상 가능성이 높습니다.")
 
 if metrics.empty:
     st.stop()
 
 render_step_header(
     4,
-    "추천 신호 상세 확인",
-    "이상 가능성이 높은 신호의 target/actual 추적 그래프와 판단 근거를 확인합니다.",
+    "핵심 신호",
+    "가장 먼저 볼 신호를 확인합니다.",
 )
 signal_options = [
     f"{row.status} · {row.signal} · {row.kind}"
     for row in metrics.itertuples(index=False)
 ]
-selected_signal = st.selectbox("Agent 추천 신호", signal_options)
+selected_signal = st.selectbox("추천 신호", signal_options)
 selected_row = metrics.iloc[signal_options.index(selected_signal)]
 selected_pair = find_pair_by_columns(
     control_pairs,
@@ -649,35 +681,35 @@ with plot_col:
     st.plotly_chart(make_tracking_figure(selected_pair_df, selected_pair, time_col), width="stretch")
 
 with table_col:
-    st.subheader("판단 근거")
+    st.subheader("요약")
     st.metric("상태", selected_row["status"])
-    st.metric("이상 후보 비율", f"{selected_row['bad_rate_percent']:.2f}%")
-    st.metric("P95 오차율", f"{selected_row['p95_abs_pct_error']:.2f}%")
-    st.metric("최대 절대 오차", f"{selected_row['max_abs_error']:.3f}")
+    st.metric("이상 후보", f"{int(selected_row['bad_count']):,}")
 
     issue_rows = selected_pair_df[selected_pair_df["tracking_anomaly"]]
     if issue_rows.empty:
-        st.caption("이 신호에서는 허용 범위를 벗어난 settled point가 없습니다.")
+        st.caption("눈에 띄는 이탈 구간이 없습니다.")
     else:
         display_cols = [time_col, selected_pair["setpoint_col"], selected_pair["actual_col"], "abs_error", "abs_pct_error"]
         if step_col and step_col in issue_rows.columns:
             display_cols.insert(1, step_col)
-        st.dataframe(issue_rows[display_cols].head(20), width="stretch", hide_index=True)
+        with st.expander("이탈 구간 보기"):
+            st.dataframe(issue_rows[display_cols].head(20), width="stretch", hide_index=True)
+
+    with st.expander("상세 지표 보기"):
+        st.metric("이상 비율", f"{selected_row['bad_rate_percent']:.2f}%")
+        st.metric("P95 오차율", f"{selected_row['p95_abs_pct_error']:.2f}%")
+        st.metric("최대 절대 오차", f"{selected_row['max_abs_error']:.3f}")
 
 render_step_header(
     5,
-    "전체 신호 우선순위 확인",
-    "감시된 모든 신호를 이상 가능성이 높은 순서로 비교합니다.",
+    "점검 우선순위",
+    "문제가 커 보이는 신호부터 정렬했습니다.",
 )
-st.subheader("점검 우선순위")
 priority_cols = [
     "status",
     "signal",
     "kind",
     "bad_count",
-    "bad_rate_percent",
-    "p95_abs_pct_error",
-    "max_abs_error",
 ]
 st.dataframe(
     metrics[priority_cols].rename(
@@ -686,16 +718,13 @@ st.dataframe(
             "signal": "신호",
             "kind": "종류",
             "bad_count": "이상 후보",
-            "bad_rate_percent": "이상 비율(%)",
-            "p95_abs_pct_error": "P95 오차율(%)",
-            "max_abs_error": "최대 절대 오차",
         }
     ),
     width="stretch",
     hide_index=True,
 )
 
-with st.expander("Agent가 자동으로 선택한 기준"):
+with st.expander("설정 정보"):
     st.write(f"데이터: **{data_name}**")
     st.write(f"시간 컬럼: `{time_col}`")
     st.write(f"Recipe 컬럼: `{recipe_col or '미탐지'}`")
@@ -704,5 +733,5 @@ with st.expander("Agent가 자동으로 선택한 기준"):
     st.write(f"공정 Row: **{len(process_df):,} / {len(base_df):,}**")
     st.dataframe(pd.DataFrame(control_pairs), width="stretch", hide_index=True)
 
-with st.expander("데이터 미리보기"):
+with st.expander("원본 데이터 보기"):
     st.dataframe(df.head(30), width="stretch")
