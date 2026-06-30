@@ -576,15 +576,16 @@ render_step_header(
 uploaded_file = st.file_uploader("CSV 업로드", type=["csv"], label_visibility="collapsed")
 
 sample_datasets = {
-    "정상 예시": "sample_1_normal.csv",
-    "주의 예시": "sample_2_short_gas_drift.csv",
-    "위험 예시": "sample_3_severe_multi_signal.csv",
+    "정상 예시 데이터 업로드하기": "sample_1_normal.csv",
+    "주의 예시 데이터 업로드하기": "sample_2_short_gas_drift.csv",
+    "위험 예시 데이터 업로드하기": "sample_3_severe_multi_signal.csv",
+    "현실형 예시 데이터 업로드하기": "sample_4_realistic_long_run.csv",
 }
 
 if uploaded_file is not None:
     st.session_state["selected_sample_data"] = None
 
-sample_cols = st.columns(3)
+sample_cols = st.columns(4)
 for idx, (sample_label, sample_path) in enumerate(sample_datasets.items()):
     if sample_cols[idx].button(sample_label, type="secondary", width="stretch"):
         st.session_state["selected_sample_data"] = sample_path
