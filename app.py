@@ -1,10 +1,12 @@
 import html
+import json
 import re
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from openai import OpenAI
 
 
 st.set_page_config(
@@ -589,6 +591,114 @@ def find_pair_by_columns(pairs, setpoint_col, actual_col):
     return pairs[0]
 
 
+def clean_for_json(value):
+    if isinstance(value, dict):
+        return {str(k): clean_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [clean_for_json(v) for v in value]
+    if isinstance(value, tuple):
+        return [clean_for_json(v) for v in value]
+    if pd.isna(value):
+        return None
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def build_ai_insight_profile(
+    df,
+    scoped_df,
+    metrics,
+    control_pairs,
+    data_name,
+    scope,
+    time_col,
+    recipe_col=None,
+    step_col=None,
+    status_col=None,
+):
+    numeric_stats = (
+        df.select_dtypes(include=np.number)
+        .describe()
+        .transpose()
+        .round(4)
+        .reset_index()
+        .rename(columns={"index": "column"})
+        .to_dict(orient="records")
+    )
+
+    total_checked = int(metrics["checked_count"].sum()) if not metrics.empty else 0
+    anomaly_count = int(metrics["bad_count"].sum()) if not metrics.empty else 0
+    anomaly_ratio = anomaly_count / total_checked if total_checked else 0
+    anomaly_columns = []
+    if not metrics.empty:
+        anomaly_columns = metrics[
+            [
+                "signal",
+                "kind",
+                "status",
+                "bad_count",
+                "bad_rate_percent",
+                "p95_abs_pct_error",
+                "max_abs_error",
+                "score",
+                "setpoint_col",
+                "actual_col",
+            ]
+        ].head(10).round(4).to_dict(orient="records")
+
+    profile = {
+        "data_name": data_name,
+        "selected_scope": scope,
+        "dataset_shape": {"rows": int(df.shape[0]), "columns": int(df.shape[1])},
+        "analyzed_shape": {"rows": int(scoped_df.shape[0]), "columns": int(scoped_df.shape[1])},
+        "columns": df.columns.tolist(),
+        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+        "missing_value_counts": df.isna().sum().astype(int).to_dict(),
+        "basic_numeric_statistics": numeric_stats,
+        "anomaly_count": anomaly_count,
+        "anomaly_ratio": round(anomaly_ratio, 6),
+        "anomaly_detection_method": "target-vs-actual tracking tolerance after setpoint settling",
+        "anomaly_related_columns_or_scores": anomaly_columns,
+        "detected_control_pairs": control_pairs,
+        "detected_context_columns": {
+            "time_col": time_col,
+            "recipe_col": recipe_col,
+            "step_col": step_col,
+            "status_col": status_col,
+        },
+    }
+    return json.dumps(clean_for_json(profile), ensure_ascii=False, indent=2)
+
+
+def generate_ai_insight_report(profile_text):
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "You are an industrial process anomaly analysis assistant. "
+                    "Write concise, practical reports from summarized pandas profiles only. "
+                    "Do not imply you saw the full CSV or raw rows."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Generate an AI Insight Report from this compact profile. "
+                    "Include these sections: Dataset overview, Anomaly detection summary, "
+                    "Key abnormal patterns, Possible causes, Recommended follow-up analyses, "
+                    "Limitations / cautions.\n\n"
+                    f"{profile_text}"
+                ),
+            },
+        ],
+    )
+    return response.output_text
+
+
 render_step_header(
     1,
     "데이터 선택",
@@ -626,6 +736,7 @@ else:
 if st.session_state.get("active_data_source_id") != data_source_id:
     st.session_state["active_data_source_id"] = data_source_id
     st.session_state["step_scope"] = "전체 공정"
+    st.session_state.pop("ai_insight_report", None)
 
 st.markdown(
     f'<div class="data-chip">분석 데이터 · {html.escape(data_name)}</div>',
@@ -754,6 +865,36 @@ st.dataframe(
     width="stretch",
     hide_index=True,
 )
+
+render_step_header(
+    6,
+    "AI Insight Report",
+    "요약된 분석 결과만 GPT에 보내 자연어 리포트를 생성합니다.",
+)
+if st.button("Generate AI Insight Report", type="primary"):
+    try:
+        profile_text = build_ai_insight_profile(
+            df=df,
+            scoped_df=scoped_df,
+            metrics=metrics,
+            control_pairs=control_pairs,
+            data_name=data_name,
+            scope=scope,
+            time_col=time_col,
+            recipe_col=recipe_col,
+            step_col=step_col,
+            status_col=status_col,
+        )
+        with st.spinner("Generating AI insight report..."):
+            report = generate_ai_insight_report(profile_text)
+        st.session_state["ai_insight_report"] = report
+    except KeyError:
+        st.error('Streamlit secret "OPENAI_API_KEY" is not configured.')
+    except Exception as exc:
+        st.error(f"AI report generation failed: {exc}")
+
+if st.session_state.get("ai_insight_report"):
+    st.markdown(st.session_state["ai_insight_report"])
 
 with st.expander("설정 정보"):
     st.write(f"데이터: **{data_name}**")
