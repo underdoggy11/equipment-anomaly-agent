@@ -15,6 +15,71 @@ st.title("PECVD 공정 이상 판단 Agent")
 st.caption("장비 로그에서 공정 구간과 target/actual 신호를 자동으로 찾아 이상 여부를 간단히 판단합니다.")
 
 
+st.markdown(
+    """
+    <style>
+    .workflow-step {
+        border-top: 1px solid #d1d5db;
+        padding-top: 1.05rem;
+        margin-top: 1.35rem;
+        margin-bottom: 0.85rem;
+    }
+    .workflow-step:first-of-type {
+        border-top: 0;
+        margin-top: 0.4rem;
+    }
+    .workflow-title {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        margin-bottom: 0.2rem;
+    }
+    .workflow-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        background: #111827;
+        color: white;
+        font-weight: 700;
+        font-size: 1rem;
+        flex: 0 0 auto;
+    }
+    .workflow-heading {
+        font-size: 1.35rem;
+        line-height: 1.25;
+        font-weight: 750;
+        color: #111827;
+    }
+    .workflow-caption {
+        color: #4b5563;
+        margin-left: 2.65rem;
+        font-size: 0.95rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def render_step_header(number, title, caption=None):
+    caption_html = f'<div class="workflow-caption">{caption}</div>' if caption else ""
+    st.markdown(
+        f"""
+        <section class="workflow-step">
+            <div class="workflow-title">
+                <span class="workflow-number">{number}</span>
+                <span class="workflow-heading">{title}</span>
+            </div>
+            {caption_html}
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def guess_time_column(df):
     for col in df.columns:
         lower = col.lower()
@@ -475,6 +540,11 @@ def find_pair_by_columns(pairs, setpoint_col, actual_col):
     return pairs[0]
 
 
+render_step_header(
+    1,
+    "데이터 선택",
+    "CSV 파일을 업로드하거나 준비된 샘플데이터를 선택해 분석을 시작합니다.",
+)
 uploaded_file = st.file_uploader("CSV 업로드", type=["csv"], label_visibility="collapsed")
 
 sample_datasets = {
@@ -515,8 +585,18 @@ if not control_pairs:
 
 timeline_fig = make_recipe_timeline_figure(base_df, time_col, recipe_col, step_col, status_col)
 if timeline_fig is not None:
+    render_step_header(
+        2,
+        "Recipe 진행 타임라인 확인",
+        "시간 흐름에 따라 어떤 recipe와 step이 진행됐는지 먼저 확인합니다.",
+    )
     st.plotly_chart(timeline_fig, width="stretch")
 
+render_step_header(
+    3,
+    "분석 구간 선택 및 공정 판단",
+    "전체 공정 또는 특정 step을 선택하면 target/actual 추적 상태를 요약합니다.",
+)
 step_options = get_step_options(process_df, step_col)
 scope = st.selectbox("공정 구간", step_options, help="Agent가 로그에서 찾은 recipe step 후보입니다.")
 
@@ -545,6 +625,11 @@ else:
 if metrics.empty:
     st.stop()
 
+render_step_header(
+    4,
+    "추천 신호 상세 확인",
+    "이상 가능성이 높은 신호의 target/actual 추적 그래프와 판단 근거를 확인합니다.",
+)
 signal_options = [
     f"{row.status} · {row.signal} · {row.kind}"
     for row in metrics.itertuples(index=False)
@@ -579,6 +664,11 @@ with table_col:
             display_cols.insert(1, step_col)
         st.dataframe(issue_rows[display_cols].head(20), width="stretch", hide_index=True)
 
+render_step_header(
+    5,
+    "전체 신호 우선순위 확인",
+    "감시된 모든 신호를 이상 가능성이 높은 순서로 비교합니다.",
+)
 st.subheader("점검 우선순위")
 priority_cols = [
     "status",
