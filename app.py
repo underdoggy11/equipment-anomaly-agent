@@ -400,14 +400,14 @@ def get_step_options(df, step_col):
     if not step_col or step_col not in df.columns:
         return ["전체 공정"]
 
-    counts = (
+    ordered_steps = (
         df[step_col]
         .astype(str)
         .str.strip()
         .replace("nan", "")
-        .value_counts()
+        .drop_duplicates()
     )
-    steps = [step for step in counts.index.tolist() if step]
+    steps = [step for step in ordered_steps.tolist() if step]
     return ["전체 공정"] + steps[:12]
 
 
