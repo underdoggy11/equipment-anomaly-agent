@@ -372,12 +372,29 @@ def find_pair_by_columns(pairs, setpoint_col, actual_col):
 
 uploaded_file = st.file_uploader("CSV 업로드", type=["csv"], label_visibility="collapsed")
 
-if uploaded_file is None:
-    df = pd.read_csv("sample.csv")
-    data_name = "sample.csv"
-else:
+sample_datasets = {
+    "샘플데이터 1": "sample_1_normal.csv",
+    "샘플데이터 2": "sample_2_short_gas_drift.csv",
+    "샘플데이터 3": "sample_3_severe_multi_signal.csv",
+}
+
+if uploaded_file is not None:
+    st.session_state["selected_sample_data"] = None
+
+sample_cols = st.columns(3)
+for idx, (sample_label, sample_path) in enumerate(sample_datasets.items()):
+    if sample_cols[idx].button(f"{sample_label} 사용하기", type="secondary", width="stretch"):
+        st.session_state["selected_sample_data"] = sample_path
+
+if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     data_name = uploaded_file.name
+elif st.session_state.get("selected_sample_data"):
+    data_name = st.session_state["selected_sample_data"]
+    df = pd.read_csv(data_name)
+else:
+    st.info("CSV 파일을 업로드하거나 샘플데이터 버튼을 눌러 분석을 시작하세요.")
+    st.stop()
 
 time_col = guess_time_column(df)
 step_col = guess_step_column(df)
