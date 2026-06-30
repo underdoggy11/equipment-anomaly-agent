@@ -318,6 +318,111 @@ def get_step_options(df, step_col):
     return ["전체 공정"] + steps[:12]
 
 
+def make_recipe_timeline_figure(df, time_col, recipe_col=None, step_col=None, status_col=None):
+    if df.empty:
+        return None
+
+    timeline_df = df.sort_values(time_col).copy()
+    timeline_df["_recipe"] = (
+        timeline_df[recipe_col].astype(str).str.strip()
+        if recipe_col and recipe_col in timeline_df.columns
+        else "Recipe"
+    )
+    timeline_df["_step"] = (
+        timeline_df[step_col].astype(str).str.strip()
+        if step_col and step_col in timeline_df.columns
+        else ""
+    )
+    timeline_df["_status"] = (
+        timeline_df[status_col].astype(str).str.strip()
+        if status_col and status_col in timeline_df.columns
+        else ""
+    )
+
+    timeline_df["_recipe"] = timeline_df["_recipe"].replace({"": "Unknown", "nan": "Unknown"})
+    timeline_df["_step"] = timeline_df["_step"].replace({"": "No step", "nan": "No step"})
+    timeline_df["_status"] = timeline_df["_status"].replace({"": "-", "nan": "-"})
+
+    timeline_df["_segment_key"] = (
+        timeline_df["_recipe"] + "||" + timeline_df["_step"] + "||" + timeline_df["_status"]
+    )
+    segment_id = timeline_df["_segment_key"].ne(timeline_df["_segment_key"].shift()).cumsum()
+
+    segments = (
+        timeline_df.groupby(segment_id)
+        .agg(
+            start=(time_col, "first"),
+            end=(time_col, "last"),
+            recipe=("_recipe", "first"),
+            step=("_step", "first"),
+            status=("_status", "first"),
+            rows=(time_col, "size"),
+        )
+        .reset_index(drop=True)
+    )
+
+    if len(timeline_df) > 1:
+        deltas = timeline_df[time_col].diff().dropna()
+        fallback_delta = deltas.median()
+    else:
+        fallback_delta = pd.Timedelta(seconds=1)
+    if pd.isna(fallback_delta) or fallback_delta <= pd.Timedelta(0):
+        fallback_delta = pd.Timedelta(seconds=1)
+
+    if len(segments) > 1:
+        segments.iloc[:-1, segments.columns.get_loc("end")] = segments["start"].shift(-1).iloc[:-1].to_numpy()
+    segments.loc[segments.index[-1], "end"] = segments.loc[segments.index[-1], "end"] + fallback_delta
+    segments["duration_ms"] = (segments["end"] - segments["start"]).dt.total_seconds() * 1000
+    segments["label"] = segments["recipe"] + " / " + segments["step"]
+
+    palette = [
+        "#2563eb",
+        "#059669",
+        "#d97706",
+        "#7c3aed",
+        "#dc2626",
+        "#0891b2",
+        "#65a30d",
+        "#9333ea",
+    ]
+    step_colors = {step: palette[idx % len(palette)] for idx, step in enumerate(segments["step"].unique())}
+
+    fig = go.Figure()
+    for row in segments.itertuples(index=False):
+        fig.add_trace(
+            go.Bar(
+                x=[row.duration_ms],
+                y=[row.recipe],
+                base=[row.start],
+                orientation="h",
+                name=row.step,
+                marker=dict(color=step_colors[row.step]),
+                text=[row.step],
+                textposition="inside",
+                hovertemplate=(
+                    "Recipe: %{y}<br>"
+                    f"Step: {row.step}<br>"
+                    f"Status: {row.status}<br>"
+                    f"Rows: {row.rows}<br>"
+                    "Start: %{base|%Y-%m-%d %H:%M:%S}<br>"
+                    f"End: {row.end:%Y-%m-%d %H:%M:%S}<extra></extra>"
+                ),
+                showlegend=row.step not in [trace.name for trace in fig.data],
+            )
+        )
+
+    fig.update_layout(
+        title="Recipe timeline",
+        height=max(220, 90 + 48 * segments["recipe"].nunique()),
+        barmode="stack",
+        margin=dict(l=16, r=16, t=56, b=16),
+        xaxis=dict(title="Time", type="date"),
+        yaxis=dict(title="", autorange="reversed"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
 def make_tracking_figure(pair_df, pair, time_col):
     set_col = pair["setpoint_col"]
     actual_col = pair["actual_col"]
@@ -407,6 +512,10 @@ control_pairs = find_control_pairs(process_df)
 if not control_pairs:
     st.error("자동으로 찾은 target/actual 신호가 없습니다. setpoint-flow 또는 temp set-temp 컬럼명을 확인하세요.")
     st.stop()
+
+timeline_fig = make_recipe_timeline_figure(base_df, time_col, recipe_col, step_col, status_col)
+if timeline_fig is not None:
+    st.plotly_chart(timeline_fig, width="stretch")
 
 step_options = get_step_options(process_df, step_col)
 scope = st.selectbox("공정 구간", step_options, help="Agent가 로그에서 찾은 recipe step 후보입니다.")
