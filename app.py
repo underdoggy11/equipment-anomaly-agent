@@ -681,16 +681,17 @@ def generate_ai_insight_report(profile_text):
                 "content": (
                     "You are an industrial process anomaly analysis assistant. "
                     "Write concise, practical reports from summarized pandas profiles only. "
-                    "Do not imply you saw the full CSV or raw rows."
+                    "Do not imply you saw the full CSV or raw rows. "
+                    "Always write the report in Korean."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     "Generate an AI Insight Report from this compact profile. "
-                    "Include these sections: Dataset overview, Anomaly detection summary, "
-                    "Key abnormal patterns, Possible causes, Recommended follow-up analyses, "
-                    "Limitations / cautions.\n\n"
+                    "Write the entire report in Korean. "
+                    "Use these Korean section headings: 데이터 개요, 이상 탐지 요약, "
+                    "주요 이상 패턴, 가능한 원인, 권장 후속 분석, 한계 및 주의사항.\n\n"
                     f"{profile_text}"
                 ),
             },
