@@ -12,7 +12,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("PECVD 공정 이상 진단")
+st.title("공정 이상 진단")
 st.caption("Recipe 흐름과 주요 제어 신호를 한 화면에서 확인합니다.")
 
 
@@ -500,7 +500,7 @@ def make_recipe_timeline_figure(df, time_col, recipe_col=None, step_col=None, st
                     "Start: %{base|%Y-%m-%d %H:%M:%S}<br>"
                     f"End: {row.end:%Y-%m-%d %H:%M:%S}<extra></extra>"
                 ),
-                showlegend=row.step not in [trace.name for trace in fig.data],
+                showlegend=False,
             )
         )
 
@@ -508,10 +508,31 @@ def make_recipe_timeline_figure(df, time_col, recipe_col=None, step_col=None, st
         title="Recipe 타임라인",
         height=max(220, 90 + 48 * segments["recipe"].nunique()),
         barmode="stack",
-        margin=dict(l=16, r=16, t=56, b=16),
-        xaxis=dict(title="시간", type="date"),
-        yaxis=dict(title="", autorange="reversed"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=16, r=16, t=48, b=24),
+        showlegend=False,
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        xaxis=dict(
+            title="시간",
+            type="date",
+            showgrid=True,
+            gridcolor="#e5e7eb",
+            griddash="dot",
+            zeroline=False,
+            showline=True,
+            linecolor="#cbd5e1",
+            mirror=True,
+        ),
+        yaxis=dict(
+            title="",
+            autorange="reversed",
+            showgrid=True,
+            gridcolor="#eef2f7",
+            zeroline=False,
+            showline=True,
+            linecolor="#cbd5e1",
+            mirror=True,
+        ),
     )
     return fig
 
@@ -624,7 +645,8 @@ if timeline_fig is not None:
         "Recipe 타임라인",
         "공정 흐름을 먼저 확인합니다.",
     )
-    st.plotly_chart(timeline_fig, width="stretch")
+    with st.container(border=True):
+        st.plotly_chart(timeline_fig, width="stretch")
 
 render_step_header(
     3,
