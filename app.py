@@ -614,12 +614,18 @@ for idx, (sample_label, sample_path) in enumerate(sample_datasets.items()):
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     data_name = uploaded_file.name
+    data_source_id = f"upload:{uploaded_file.name}:{uploaded_file.size}"
 elif st.session_state.get("selected_sample_data"):
     data_name = st.session_state["selected_sample_data"]
     df = pd.read_csv(data_name)
+    data_source_id = f"sample:{data_name}"
 else:
     st.info("분석할 데이터를 선택하세요.")
     st.stop()
+
+if st.session_state.get("active_data_source_id") != data_source_id:
+    st.session_state["active_data_source_id"] = data_source_id
+    st.session_state["step_scope"] = "전체 공정"
 
 st.markdown(
     f'<div class="data-chip">분석 데이터 · {html.escape(data_name)}</div>',
@@ -654,7 +660,9 @@ render_step_header(
     "분석할 구간을 선택하면 결과가 바로 갱신됩니다.",
 )
 step_options = get_step_options(process_df, step_col)
-scope = st.selectbox("구간", step_options)
+if st.session_state.get("step_scope") not in step_options:
+    st.session_state["step_scope"] = "전체 공정"
+scope = st.selectbox("구간", step_options, key="step_scope")
 
 scoped_df = process_df.copy()
 if scope != "전체 공정" and step_col:
